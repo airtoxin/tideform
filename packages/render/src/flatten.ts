@@ -50,9 +50,9 @@ export function flattenScene<TMeta>(scene: Scene<TMeta>): Drawable<TMeta>[] {
         y: item.y,
         size: item.size,
         visual: item.visual,
-        hitArea: item.hitArea,
-        draggable: item.draggable,
-        meta: item.meta,
+        ...(item.hitArea !== undefined && { hitArea: item.hitArea }),
+        ...(item.draggable !== undefined && { draggable: item.draggable }),
+        ...(item.meta !== undefined && { meta: item.meta }),
         order: order++,
       });
       continue;
@@ -68,15 +68,15 @@ export function flattenScene<TMeta>(scene: Scene<TMeta>): Drawable<TMeta>[] {
         stackId: item.id,
         stackIndex: index,
         stackDragMode: dragMode,
-        stackMeta: item.meta,
         stackOffset: offset,
         x: item.x + offset.x * index,
         y: item.y + offset.y * index,
         size: stackItem.size,
         visual: stackItem.visual,
-        hitArea: stackItem.hitArea,
-        draggable: stackDraggable ? true : undefined,
-        meta: stackItem.meta,
+        ...(item.meta !== undefined && { stackMeta: item.meta }),
+        ...(stackItem.hitArea !== undefined && { hitArea: stackItem.hitArea }),
+        ...(stackDraggable && { draggable: true as const }),
+        ...(stackItem.meta !== undefined && { meta: stackItem.meta }),
         order: order++,
       });
     });

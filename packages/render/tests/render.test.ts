@@ -1137,7 +1137,7 @@ test("snap.drag receives context with target, world, delta, startWorld and previ
 
   expect(contexts).toHaveLength(3);
   expect(contexts[0]).toMatchObject({
-    target: { type: "entity", id: "drag", meta: undefined },
+    target: { type: "entity", id: "drag" },
     world: { x: 25, y: 18 },
     delta: { x: 15, y: 8 },
     startWorld: { x: 10, y: 10 },

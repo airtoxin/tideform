@@ -32,21 +32,25 @@ export function hitTestDrawables<TMeta>(
 export function toHitResult<TMeta>(drawable: Drawable<TMeta> | null): HitResult<TMeta> | null {
   if (!drawable) return null;
   if (drawable.stackId === undefined) {
-    return { type: "entity", id: drawable.id, meta: drawable.meta };
+    return {
+      type: "entity",
+      id: drawable.id,
+      ...(drawable.meta !== undefined && { meta: drawable.meta }),
+    };
   }
   if (drawable.stackDragMode === "stack") {
     return {
       type: "stack",
       id: drawable.stackId,
-      meta: drawable.stackMeta,
+      ...(drawable.stackMeta !== undefined && { meta: drawable.stackMeta }),
     };
   }
   return {
     type: "stackItem",
     id: drawable.id,
-    meta: drawable.meta,
+    ...(drawable.meta !== undefined && { meta: drawable.meta }),
     stackId: drawable.stackId,
-    stackMeta: drawable.stackMeta,
+    ...(drawable.stackMeta !== undefined && { stackMeta: drawable.stackMeta }),
     index: drawable.stackIndex ?? 0,
   };
 }
@@ -63,13 +67,13 @@ export function toDragTarget<TMeta>(
       .sort((a, b) => (a.stackIndex ?? 0) - (b.stackIndex ?? 0))
       .map((d) => ({
         id: d.id,
-        meta: d.meta,
+        ...(d.meta !== undefined && { meta: d.meta }),
         index: d.stackIndex ?? 0,
       }));
     return {
       type: "stackSlice",
       stackId: drawable.stackId,
-      stackMeta: drawable.stackMeta,
+      ...(drawable.stackMeta !== undefined && { stackMeta: drawable.stackMeta }),
       fromIndex,
       items: sliceItems,
     };

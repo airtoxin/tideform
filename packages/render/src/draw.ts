@@ -89,8 +89,8 @@ function drawCylinder(
   if (typeof ctx.ellipse !== "function") {
     drawCircle(ctx, x, y, width, height, {
       type: "circle",
-      fill: visual.fill,
-      stroke: visual.stroke,
+      ...(visual.fill !== undefined && { fill: visual.fill }),
+      ...(visual.stroke !== undefined && { stroke: visual.stroke }),
     });
     return;
   }
