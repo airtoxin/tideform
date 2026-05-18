@@ -6,7 +6,7 @@ import {
   type Scene,
   type SceneItem,
 } from "@tideform/render";
-import { squareGrid } from "@tideform/render/boards";
+import { hexGrid, type HexCell, squareGrid, type SquareGridCell } from "@tideform/render/boards";
 
 type Meta =
   | { type: "card"; cardId: string }
@@ -30,8 +30,11 @@ type Deck = {
 
 type StackPiece = { id: string; color: string };
 
+type Board = "square" | "hex";
+
 type Pile = {
   id: string;
+  board: Board;
   x: number;
   y: number;
   pieces: StackPiece[];
@@ -53,9 +56,28 @@ const cards: Card[] = [
   { id: "card-C", x: 560, y: 80 },
 ];
 
+const GRID_CELL_SIZE = 56;
+const grid = squareGrid({ x: 320, y: 210, rows: 2, cols: 8, cellSize: GRID_CELL_SIZE });
+
+const HEX_SIZE = 40;
+const HEX_RADIUS = 2;
+const HEX_ORIGIN = { x: 400, y: 580 };
+const hex = hexGrid({
+  origin: HEX_ORIGIN,
+  size: HEX_SIZE,
+  radius: HEX_RADIUS,
+  orientation: "pointy",
+});
+
+function hexCellTopLeftFor(piece: { width: number; height: number }, cell: HexCell): Position {
+  const center = hex.cellCenter(cell);
+  return { x: center.x - piece.width / 2, y: center.y - piece.height / 2 };
+}
+
 const piles: Pile[] = [
   {
     id: "pile-tower",
+    board: "square",
     x: 200,
     y: 320,
     pieces: [
@@ -65,11 +87,36 @@ const piles: Pile[] = [
       { id: "stk-p4", color: "#fafafa" },
     ],
   },
-  { id: "pile-A", x: 380, y: 380, pieces: [{ id: "p-A", color: "#1f1f1f" }] },
-  { id: "pile-B", x: 460, y: 380, pieces: [{ id: "p-B", color: "#fafafa" }] },
-  { id: "pile-C", x: 540, y: 380, pieces: [{ id: "p-C", color: "#1f1f1f" }] },
-  { id: "pile-D", x: 620, y: 380, pieces: [{ id: "p-D", color: "#fafafa" }] },
+  { id: "pile-A", board: "square", x: 380, y: 380, pieces: [{ id: "p-A", color: "#1f1f1f" }] },
+  { id: "pile-B", board: "square", x: 460, y: 380, pieces: [{ id: "p-B", color: "#fafafa" }] },
+  { id: "pile-C", board: "square", x: 540, y: 380, pieces: [{ id: "p-C", color: "#1f1f1f" }] },
+  { id: "pile-D", board: "square", x: 620, y: 380, pieces: [{ id: "p-D", color: "#fafafa" }] },
 ];
+
+// Seed a few hex piles so the cube-coords layout is visible without dragging.
+const hexSeed: { cell: HexCell; pieces: StackPiece[] }[] = [
+  {
+    cell: { x: 0, y: 0, z: 0 },
+    pieces: [
+      { id: "hx-1a", color: "#1f1f1f" },
+      { id: "hx-1b", color: "#fafafa" },
+      { id: "hx-1c", color: "#1f1f1f" },
+    ],
+  },
+  { cell: { x: 1, y: -1, z: 0 }, pieces: [{ id: "hx-2", color: "#fafafa" }] },
+  { cell: { x: -1, y: 0, z: 1 }, pieces: [{ id: "hx-3", color: "#1f1f1f" }] },
+];
+
+for (const seed of hexSeed) {
+  const topLeft = hexCellTopLeftFor({ width: PIECE_WIDTH, height: PIECE_HEIGHT }, seed.cell);
+  piles.push({
+    id: `hpile-${seed.cell.x}-${seed.cell.y}-${seed.cell.z}`,
+    board: "hex",
+    x: topLeft.x,
+    y: topLeft.y,
+    pieces: seed.pieces,
+  });
+}
 
 let newPileCounter = 0;
 function newPileId(): string {
@@ -123,19 +170,20 @@ if (!canvas || !log) {
   throw new Error("Required DOM elements not found.");
 }
 
-const GRID_CELL_SIZE = 56;
-const grid = squareGrid({ x: 320, y: 210, rows: 2, cols: 8, cellSize: GRID_CELL_SIZE });
+function pileOnSquareCell(cell: SquareGridCell): Pile | null {
+  const candidates = piles.filter((p) => p.board === "square" && p.pieces.length > 0);
+  return grid.findOnCell(cell, candidates, (p) => ({
+    x: p.x + PIECE_WIDTH / 2,
+    y: p.y + PIECE_HEIGHT / 2,
+  }));
+}
 
-function pileOnCell(cell: { row: number; col: number }): Pile | null {
-  for (const pile of piles) {
-    if (pile.pieces.length === 0) continue;
-    const c = grid.worldToCell({
-      x: pile.x + PIECE_WIDTH / 2,
-      y: pile.y + PIECE_HEIGHT / 2,
-    });
-    if (c && c.row === cell.row && c.col === cell.col) return pile;
-  }
-  return null;
+function pileOnHexCell(cell: HexCell): Pile | null {
+  const candidates = piles.filter((p) => p.board === "hex" && p.pieces.length > 0);
+  return hex.findOnCell(cell, candidates, (p) => ({
+    x: p.x + PIECE_WIDTH / 2,
+    y: p.y + PIECE_HEIGHT / 2,
+  }));
 }
 
 // Forward-declare so the snap.drag closure can call back into the instance —
@@ -146,28 +194,47 @@ renderer = createRenderer<Meta>({
   snap: {
     drag: ({ target, world, anchor }) => {
       if (target.type !== "stackSlice") return null;
-      const cell = grid.worldToCell(world);
+      const source = findPile(target.stackId);
+      if (!source) return null;
+
+      if (source.board === "square") {
+        const cell = grid.worldToCell(world);
+        if (!cell) return null;
+        const pile = pileOnSquareCell(cell);
+        if (pile && pile.id === target.stackId) {
+          // Cursor over the source cell — pin the slice to its original spot.
+          return { anchor };
+        }
+        if (pile) {
+          const next = renderer.stackNextAnchor(pile.id);
+          if (next) return { anchor: next };
+        }
+        const cellTopLeft = grid.cellToWorld(cell);
+        return {
+          anchor: {
+            x: cellTopLeft.x + (GRID_CELL_SIZE - PIECE_WIDTH) / 2,
+            y: cellTopLeft.y + (GRID_CELL_SIZE - PIECE_HEIGHT) / 2,
+          },
+        };
+      }
+
+      const cell = hex.worldToCell(world);
       if (!cell) return null;
-      const pile = pileOnCell(cell);
+      const pile = pileOnHexCell(cell);
       if (pile && pile.id === target.stackId) {
-        // Cursor over the source cell — pin the slice to its original spot.
         return { anchor };
       }
       if (pile) {
         const next = renderer.stackNextAnchor(pile.id);
         if (next) return { anchor: next };
       }
-      const cellTopLeft = grid.cellToWorld(cell);
       return {
-        anchor: {
-          x: cellTopLeft.x + (GRID_CELL_SIZE - PIECE_WIDTH) / 2,
-          y: cellTopLeft.y + (GRID_CELL_SIZE - PIECE_HEIGHT) / 2,
-        },
+        anchor: hexCellTopLeftFor({ width: PIECE_WIDTH, height: PIECE_HEIGHT }, cell),
       };
     },
   },
 });
-renderer.resize(800, 480);
+renderer.resize(800, 760);
 
 function pieceStrokes(color: string): { stroke: string; capStroke: string } {
   return {
@@ -201,6 +268,10 @@ function pieceStackItem(piece: StackPiece): {
   };
 }
 
+// Hex visuals aren't in the library yet — circles inscribed in each hex cell
+// hint at the snap targets without claiming to be hexagons.
+const HEX_INSCRIBED_DIAMETER = Math.round(HEX_SIZE * Math.sqrt(3));
+
 function buildScene(): Scene<Meta> {
   const gridItems: SceneItem<Meta>[] = grid.cells().map((cell) => {
     const pos = grid.cellToWorld(cell);
@@ -218,8 +289,25 @@ function buildScene(): Scene<Meta> {
     };
   });
 
+  const hexCellItems: SceneItem<Meta>[] = hex.cells().map((cell) => {
+    const center = hex.cellCenter(cell);
+    return {
+      type: "entity",
+      id: `hex-${cell.x}-${cell.y}-${cell.z}`,
+      x: center.x - HEX_INSCRIBED_DIAMETER / 2,
+      y: center.y - HEX_INSCRIBED_DIAMETER / 2,
+      size: { width: HEX_INSCRIBED_DIAMETER, height: HEX_INSCRIBED_DIAMETER },
+      visual: {
+        type: "circle",
+        fill: (cell.x - cell.z) % 2 === 0 ? "#ede4ce" : "#dccfa9",
+        stroke: "#bda878",
+      },
+    };
+  });
+
   const items: SceneItem<Meta>[] = [
     ...gridItems,
+    ...hexCellItems,
     {
       type: "stack",
       id: deck.id,
@@ -284,18 +372,43 @@ renderer.on("dragEnd", (event) => {
     // The snap is cell-based, so the drop cell matches the snap cell. Look up
     // the pile on that cell directly — dropTarget hit-testing fails when the
     // snap lifts the preview above the destination's pieces.
-    const cellAtDrop = grid.worldToCell(event.world);
-    const targetPile: Pile | null = cellAtDrop ? pileOnCell(cellAtDrop) : null;
+    let targetPile: Pile | null = null;
+    let dropAnchor: Position | null = null;
+    if (sourcePile.board === "square") {
+      const cellAtDrop = grid.worldToCell(event.world);
+      if (cellAtDrop) {
+        targetPile = pileOnSquareCell(cellAtDrop);
+        if (!targetPile) {
+          const topLeft = grid.cellToWorld(cellAtDrop);
+          dropAnchor = {
+            x: topLeft.x + (GRID_CELL_SIZE - PIECE_WIDTH) / 2,
+            y: topLeft.y + (GRID_CELL_SIZE - PIECE_HEIGHT) / 2,
+          };
+        }
+      }
+    } else {
+      const cellAtDrop = hex.worldToCell(event.world);
+      if (cellAtDrop) {
+        targetPile = pileOnHexCell(cellAtDrop);
+        if (!targetPile) {
+          dropAnchor = hexCellTopLeftFor({ width: PIECE_WIDTH, height: PIECE_HEIGHT }, cellAtDrop);
+        }
+      }
+    }
 
     if (targetPile) {
       targetPile.pieces.push(...slicePieces);
-    } else {
+    } else if (dropAnchor) {
       piles.push({
         id: newPileId(),
-        x: event.previewAnchor.x,
-        y: event.previewAnchor.y,
+        board: sourcePile.board,
+        x: dropAnchor.x,
+        y: dropAnchor.y,
         pieces: slicePieces,
       });
+    } else {
+      // Dropped off the source's board — return the slice to where it came from.
+      sourcePile.pieces.push(...slicePieces);
     }
 
     removeEmptyPiles();
